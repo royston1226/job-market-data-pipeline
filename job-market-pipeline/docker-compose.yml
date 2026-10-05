@@ -1,0 +1,56 @@
+services:
+  mongo:
+    image: mongo:7.0
+    volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --eval, "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: jobs
+      POSTGRES_USER: jobs
+      POSTGRES_PASSWORD: local_demo_password
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U jobs -d jobs]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.17.2
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes: [elastic_data:/usr/share/elasticsearch/data]
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s'"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+  pipeline:
+    build: .
+    environment: &connections
+      MONGO_URI: mongodb://mongo:27017
+      POSTGRES_DSN: postgresql://jobs:local_demo_password@postgres:5432/jobs
+      ELASTIC_URL: http://elasticsearch:9200
+      ROW_LIMIT: ${ROW_LIMIT:-25000}
+    volumes: [./data:/project/data:ro, ./reports:/project/reports]
+    depends_on:
+      mongo: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+      elasticsearch: {condition: service_healthy}
+  app:
+    build: .
+    command: [streamlit, run, app/main.py, --server.address=0.0.0.0]
+    environment: *connections
+    ports: [127.0.0.1:8501:8501]
+    depends_on:
+      pipeline: {condition: service_completed_successfully}
+volumes:
+  mongo_data:
+  postgres_data:
+  elastic_data:
