@@ -1,0 +1,5 @@
+pyarrow==19.0.1
+pymongo==4.11.3
+psycopg[binary]==3.2.6
+elasticsearch==8.17.2
+streamlit==1.43.2
