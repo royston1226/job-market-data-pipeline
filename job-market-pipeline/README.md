@@ -29,10 +29,10 @@ The source files are processed in sorted filename order; this is a prefix, not a
 
 ## Inspect, test, and query
 
-Local inspection needs Python and PyArrow:
+Local inspection and tests need Python and the project dependencies:
 
 ```powershell
-python -m pip install pyarrow
+python -m pip install -r requirements.txt
 python pipeline/inspect_data.py
 python -m unittest discover -s tests -v
 ```
@@ -51,6 +51,17 @@ docker compose logs --tail 100 pipeline elasticsearch postgres app
 ```
 
 `reports/latest_run.json` contains measured pipeline counts/timing after a successful run. `reports/local_validation.json` records the separate local transformation scan performed during development. No database timing is invented.
+
+`reports/rejected_records.jsonl` contains one JSON object per transformation rejection, written and flushed immediately. Each entry has `run_id`, `source_file`, `source_record_id` (the original `id`, or JSON null if missing), `error_type`, and `reason` (the exception message, capped at 500 characters). Entire raw records are not included; rejected source records remain in MongoDB. Rejections are excluded from PostgreSQL and Elasticsearch as before. Duplicate IDs skipped by the existing first-record policy are not transformation rejections.
+
+The rejection file is truncated at the beginning of every invocation, before input validation or database setup. Zero rejections leave an empty file, and the successful summary explicitly reports `rejected_records: 0`. On failure, already-flushed entries remain as a partial report for that invocation; an empty file alone does not establish success. Use the current logs/exit status and the run ID to distinguish it from an older `latest_run.json`. The shared report path assumes one pipeline invocation at a time. Copy the file elsewhere before rerunning if you need to retain it. Generated reports remain ignored by Git.
+
+Run the focused reporting tests (with the pinned pipeline dependencies installed):
+
+```powershell
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -p test_rejection_reporting.py -v
+```
 
 Stop services while keeping stored data:
 
@@ -98,7 +109,7 @@ The dashboard summarizes **the stored snapshot**, which may include closed jobs,
 
 ## Validation and practical limits
 
-Six transformation unit tests passed. Python source compiled and Compose YAML parsed. The full supplied Parquet file was scanned through the transformation functions; actual results are in `reports/local_validation.json`.
+Transformation and rejection-reporting unit tests cover cleaning, rejection metadata, incremental writes, reruns, and zero-rejection runs. Reporting tests mock database/search services; they do not establish live integration behavior. Python source compiled and Compose YAML parsed. The full supplied Parquet file was scanned through the transformation functions; actual results are in `reports/local_validation.json`.
 
 Docker is unavailable in the development environment, so container builds, database writes, Elasticsearch retrieval and the Streamlit browser flow **have not been integration-tested here**. Run the startup commands on your laptop and check the logs before a demo. Pinned dependency/image versions make setup reproducible; updating them requires compatibility testing.
 

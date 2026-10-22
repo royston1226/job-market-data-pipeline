@@ -24,13 +24,34 @@ MAPPING = {'properties': {
 def search_document(row):
     return {k:v.isoformat() if isinstance(v,datetime) else v for k,v in row.items()}
 
+def write_rejection(report, run_id, document, error):
+    """Write only rejection metadata, making each entry visible immediately."""
+    entry = {
+        'run_id': run_id,
+        'source_file': document['source_file'],
+        'source_record_id': document['record'].get('id'),
+        'error_type': type(error).__name__,
+        'reason': (str(error) or type(error).__name__)[:500],
+    }
+    report.write(json.dumps(entry, ensure_ascii=False) + '\n')
+    report.flush()
+
+
 def main():
+    run_id = datetime.now(timezone.utc).isoformat()
+    (ROOT/'reports').mkdir(exist_ok=True)
+    # Truncate before validation or service setup, so stale rejections never
+    # masquerade as results from this invocation (including failed runs).
+    with (ROOT/'reports/rejected_records.jsonl').open('w', encoding='utf-8') as rejections:
+        run_pipeline(run_id, rejections)
+
+
+def run_pipeline(run_id, rejections):
     limit = int(os.getenv('ROW_LIMIT','25000'))
     if limit < 0: raise ValueError('ROW_LIMIT must be >= 0')
     files = sorted((ROOT/'data').glob('*.parquet'))
     if not files: raise FileNotFoundError('Put jobs Parquet files in data/')
-    stats = Counter(); timings = Counter(); start = time.perf_counter()
-    run_id = datetime.now(timezone.utc).isoformat()
+    stats = Counter(rejected_records=0); timings = Counter(); start = time.perf_counter()
     mongo = MongoClient(os.environ['MONGO_URI'], tz_aware=True)
     collection = mongo.jobs.raw_jobs
     es = Elasticsearch(os.environ['ELASTIC_URL'], request_timeout=60)
@@ -61,7 +82,8 @@ def main():
                 # Transformation reads back the raw layer, rather than bypassing MongoDB.
                 for document in collection.find({'_id':{'$in':keys},'run_id':run_id}):
                     try: row=transform(document['record'])
-                    except (ValueError,TypeError,KeyError,OverflowError):
+                    except (ValueError,TypeError,KeyError,OverflowError) as error:
+                        write_rejection(rejections, run_id, document, error)
                         stats['rejected_records']+=1; continue
                     clean.append(row)
                     stats['records_cleaned']+=1
