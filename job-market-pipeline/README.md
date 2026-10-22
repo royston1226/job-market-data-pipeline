@@ -72,6 +72,8 @@ docker compose down
 
 ## Dataset and design
 
+See [Dataset structure and quality observations](docs/dataset.md) for measured schema, completeness, category frequencies, date ranges, and analysis limitations for the full source file.
+
 The supplied file has 400,000 rows and 14 columns. It contains identifiers, job titles, departments, employment/workplace categories, country, remote flag, posting/fetch/close timestamps, application URL and status. It has **no description, salary, city, company name or skill list**. No such fields or derived skill claims are invented.
 
 `companies(company_id)` preserves source company identities without inventing names. `jobs.id` is the source identifier and primary key; `jobs.company_id` references companies. `job_id` is retained but is not assumed globally unique. This is deliberately a small relational design grounded in the available fields.
